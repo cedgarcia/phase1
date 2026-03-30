@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# React build output
+frontend/build/
+
+# Environment files (never commit secrets!)
+.env
+.env.local
+.env.*.local
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+.idea/

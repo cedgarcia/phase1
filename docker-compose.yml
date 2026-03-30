@@ -1,0 +1,57 @@
+version: '3.9'
+
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: task-db
+    environment:
+      POSTGRES_DB: taskdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - db_data:/var/lib/postgresql/data          # persist data between restarts
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql  # seed on first start
+    ports:
+      - "5432:5432"                               # expose for local DB tools (optional)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Node.js API ──────────────────────────────────────────────────────────────
+  api:
+    build: ./api
+    container_name: task-api
+    environment:
+      DB_HOST: db                  # Docker resolves service names as hostnames
+      DB_PORT: 5432
+      DB_NAME: taskdb
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      PORT: 4000
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy  # wait for postgres to be ready
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── React Frontend (nginx) ────────────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: task-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  db_data:   # named volume — data survives `docker compose down`
