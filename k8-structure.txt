@@ -1,0 +1,42 @@
+Cluster/
+│
+├── ControlPlane/          # Management / brain
+│   ├── API_Server
+│   ├── Scheduler
+│   ├── ControllerManager
+│   └── etcd               # Cluster state DB
+│
+├── Namespaces/            # Logical folders inside the cluster
+│   ├── default/
+│   │   ├── Pods/
+│   │   │   ├── Pod1/
+│   │   │   │   └── Containers/
+│   │   │   │       ├── ContainerA
+│   │   │   │       └── ContainerB
+│   │   │   └── Pod2/
+│   │   │       └── Containers/...
+│   │   ├── Services/
+│   │   ├── ConfigMaps/
+│   │   └── Secrets/
+│   │
+│   ├── dev/
+│   │   └── ... (same structure)
+│   │
+│   └── prod/
+│       └── ... (same structure)
+│
+├── WorkerNodes/           # Physical or virtual machines
+│   ├── Node1/
+│   │   ├── Kubelet
+│   │   ├── KubeProxy
+│   │   └── Pods/
+│   │       └── ... (Pods run containers)
+│   ├── Node2/
+│   │   └── ...
+│   └── Node3/
+│       └── ...
+│
+└── Network/               # Networking layer
+    ├── Services/
+    ├── Ingress/
+    └── NetworkPolicies/
