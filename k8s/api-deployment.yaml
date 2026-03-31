@@ -17,6 +17,13 @@ spec:
         - name: task-api
           image: task-manager-api:latest
           imagePullPolicy: Never
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
           env:
             - name: DB_HOST
               valueFrom:
@@ -62,3 +69,5 @@ spec:
   ports:
     - port: 4000
       targetPort: 4000
+
+
