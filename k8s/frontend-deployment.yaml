@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
         - name: task-frontend
-          image: task-manager-frontend:latest
-          imagePullPolicy: Never
+          image: cedgarcia/task-manager-frontend:latest
+          imagePullPolicy: Always
           resources:
             requests:
               memory: "64Mi"

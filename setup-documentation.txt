@@ -1,0 +1,334 @@
+================================================================
+   TASK MANAGER — DOCKER + KUBERNETES SETUP DOCUMENTATION
+================================================================
+Author: vni-johncedrick
+Date:   2026-03-31
+Repo:   github.com/<your-repo>/task-manager
+================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 1 — DOCKER COMPOSE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOAL: Run 3 containers locally using Docker Compose
+  - task-frontend  (React + nginx)
+  - task-api       (Node.js + Express)
+  - task-db        (PostgreSQL)
+
+── Commands ────────────────────────────────────────────────────
+
+  docker compose up --build -d
+    → Build images and start all 3 containers in the background
+
+  docker compose ps
+    → Show status of all running containers
+
+  docker compose logs -f
+    → Stream logs from all containers (Ctrl+C to stop)
+
+  docker compose logs -f api
+    → Stream logs from api container only
+
+  docker compose down
+    → Stop all containers (data is SAFE)
+
+  docker compose down -v
+    → Stop all containers AND delete volumes (data is GONE)
+
+  docker compose exec db psql -U postgres -d taskdb
+    → Open a psql shell inside the db container
+
+── Key Concepts Learned ────────────────────────────────────────
+
+  - 1 service per container (best practice)
+  - Container networking: service name = hostname (e.g. "db")
+  - Named volumes: data persists across restarts
+  - Healthchecks: proper startup order (db → api → frontend)
+  - Multi-stage builds: smaller final images
+  - nginx as reverse proxy: /api/* → api container
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 2 — KUBERNETES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOAL: Migrate Docker Compose setup to Kubernetes
+      using kubectl and YAML manifest files
+
+── Step 1: Verify kubectl and Kubernetes cluster ───────────────
+
+  kubectl version --client
+    → Check if kubectl is installed
+
+  kubectl get nodes
+    → Check if Kubernetes cluster is running
+    → Expected: desktop-control-plane   Ready
+
+── Step 2: Create Namespace ────────────────────────────────────
+
+  kubectl apply -f namespace.yaml
+    → Create task-manager namespace (groups all our resources)
+
+  kubectl get namespaces
+    → List all namespaces in the cluster
+
+── Step 3: Create ConfigMap ────────────────────────────────────
+
+  kubectl apply -f configmap.yaml
+    → Store non-sensitive environment variables
+      (DB_HOST, DB_PORT, DB_NAME, DB_USER, PORT)
+
+── Step 4: Create Secret ───────────────────────────────────────
+
+  kubectl apply -f secret.yaml
+    → Store sensitive data (DB_PASSWORD)
+    → Auto base64-encoded by Kubernetes
+
+  kubectl get secrets -n task-manager
+    → List all secrets in task-manager namespace
+
+── Step 5: Deploy Database ─────────────────────────────────────
+
+  kubectl apply -f db-deployment.yaml
+    → Create PostgreSQL Deployment + Service
+    → Service name: task-db-service (used as hostname by api)
+
+── Step 6: Build and Deploy API ────────────────────────────────
+
+  docker build -t task-manager-api:latest ./api
+    → Build the API Docker image locally
+    → Required before applying to Kubernetes
+
+  kubectl apply -f api-deployment.yaml
+    → Create Node.js API Deployment + Service
+
+── Step 7: Build and Deploy Frontend ───────────────────────────
+
+  docker build -t task-manager-frontend:latest ./frontend
+    → Build the Frontend Docker image locally
+
+  kubectl apply -f frontend-deployment.yaml
+    → Create React/nginx Deployment + Service (NodePort: 30000)
+
+── Step 8: Initialize Database ─────────────────────────────────
+
+  kubectl exec -it -n task-manager <db-pod-name> -- psql -U postgres -d taskdb
+    → Open psql shell inside the db pod
+    → Run init.sql manually (create table + seed data)
+    → Note: unlike Docker Compose, K8s does not auto-run init.sql
+
+── Step 9: Check Pod Status ────────────────────────────────────
+
+  kubectl get pods -n task-manager
+    → List all pods in task-manager namespace
+    → Expected STATUS: Running for all pods
+
+  kubectl logs -n task-manager <pod-name>
+    → View logs of a specific pod (useful for debugging)
+
+  kubectl describe pod -n task-manager <pod-name>
+    → Detailed info about a pod (events, limits, volumes, etc.)
+
+── Step 10: Restart a Deployment ───────────────────────────────
+
+  kubectl rollout restart deployment/task-frontend -n task-manager
+    → Restart all pods in a deployment
+    → Used after rebuilding a Docker image
+
+── Key Concepts Learned ────────────────────────────────────────
+
+  Docker Compose      →  Kubernetes
+  ─────────────────────────────────
+  service             →  Deployment + Service
+  environment         →  ConfigMap
+  passwords           →  Secret
+  named volume        →  PersistentVolumeClaim
+  ports               →  Ingress
+  depends_on          →  healthcheck probes
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 3 — PERSISTENT STORAGE (PVC)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOAL: Make database data survive pod crashes/restarts
+
+── Commands ────────────────────────────────────────────────────
+
+  kubectl apply -f pvc.yaml
+    → Create a 1Gi PersistentVolumeClaim for the database
+
+  kubectl apply -f db-deployment.yaml
+    → Re-apply db deployment with PVC attached
+    → Mounts PVC to /var/lib/postgresql/data
+
+  kubectl delete pod -n task-manager <db-pod-name>
+    → Simulate a pod crash
+    → Kubernetes auto-creates a new pod
+    → Data should still be there (proof PVC works)
+
+── Key Concepts Learned ────────────────────────────────────────
+
+  - Without PVC: pod crash = data GONE
+  - With PVC:    pod crash = data SAFE
+  - PVC is like named volumes in Docker Compose
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 4 — INGRESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOAL: Access app via http://localhost instead of localhost:30000
+
+── Commands ────────────────────────────────────────────────────
+
+  kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.0/deploy/static/provider/cloud/deploy.yaml
+    → Install nginx Ingress Controller
+
+  kubectl wait --namespace ingress-nginx \
+    --for=condition=ready pod \
+    --selector=app.kubernetes.io/component=controller \
+    --timeout=120s
+    → Wait for Ingress Controller to be ready
+
+  kubectl apply -f ingress.yaml
+    → Create Ingress rules:
+        /        → task-frontend-service
+        /api/*   → task-api-service
+
+  curl http://localhost/api/tasks
+    → Test if API routing is working via Ingress
+
+── Key Concepts Learned ────────────────────────────────────────
+
+  - Ingress Controller: processes all Ingress rules
+  - Ingress: defines routing rules (like nginx.conf)
+  - Before: http://localhost:30000 (NodePort)
+  - After:  http://localhost       (Ingress, cleaner)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 5 — RESOURCE LIMITS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOAL: Prevent pods from consuming too much CPU/RAM
+
+── Commands ────────────────────────────────────────────────────
+
+  kubectl apply -f api-deployment.yaml
+  kubectl apply -f db-deployment.yaml
+  kubectl apply -f frontend-deployment.yaml
+    → Re-apply deployments with resource limits added
+
+  kubectl describe pod -n task-manager <pod-name>
+    → Verify resource limits are applied
+    → Look for Limits and Requests section
+
+── Resource Limits Set ─────────────────────────────────────────
+
+  task-api:
+    requests: 100m CPU / 128Mi RAM
+    limits:   250m CPU / 256Mi RAM
+
+  task-db:
+    requests: 100m CPU / 128Mi RAM
+    limits:   250m CPU / 256Mi RAM
+
+  task-frontend:
+    requests: 50m CPU  / 64Mi RAM
+    limits:   100m CPU / 128Mi RAM
+
+── Key Concepts Learned ────────────────────────────────────────
+
+  - requests: guaranteed resources for the pod
+  - limits:   maximum resources the pod can use
+  - 100m = 100 millicores = 0.1 CPU
+  - Never deploy to production without resource limits!
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 6 — MONITORING (PROMETHEUS + GRAFANA)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOAL: Monitor CPU, memory, and pod metrics via Grafana dashboard
+
+── Commands ────────────────────────────────────────────────────
+
+  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    → Add Prometheus Helm chart repository
+
+  helm repo update
+    → Fetch latest charts from all repos
+
+  helm install monitoring prometheus-community/kube-prometheus-stack \
+    --namespace monitoring \
+    --create-namespace
+    → Install Prometheus + Grafana + Alertmanager in one command
+
+  kubectl get pods -n monitoring
+    → Check if all monitoring pods are running
+
+  kubectl --namespace monitoring get secrets monitoring-grafana \
+    -o jsonpath="{.data.admin-password}" | base64 -d
+    → Get Grafana admin password
+
+  kubectl --namespace monitoring port-forward \
+    pod/<grafana-pod-name> 3001:3000
+    → Forward Grafana to localhost:3001
+
+── Grafana Access ───────────────────────────────────────────────
+
+  URL:      http://localhost:3001
+  Username: admin
+  Password: (from command above)
+
+  Useful Dashboard:
+    Dashboards → Kubernetes / Compute Resources / Namespace (Pods)
+    Namespace: task-manager
+    → Shows CPU and Memory per pod
+
+── Key Concepts Learned ────────────────────────────────────────
+
+  - Prometheus: scrapes metrics from pods every 15 seconds
+  - Grafana: reads from Prometheus and displays graphs
+  - Helm: Kubernetes package manager (like npm for K8s)
+  - Both run in background automatically once installed
+
+  Flow:
+    K8s pods → Prometheus (collect) → Grafana (display)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  GENERAL KUBECTL COMMANDS (REFERENCE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  kubectl get pods -n <namespace>           → list pods
+  kubectl get services -n <namespace>       → list services
+  kubectl get deployments -n <namespace>    → list deployments
+  kubectl get all -n <namespace>            → list everything
+
+  kubectl logs -n <namespace> <pod>         → view pod logs
+  kubectl describe pod -n <namespace> <pod> → pod details
+  kubectl exec -it -n <namespace> <pod> -- <command>
+                                            → run command inside pod
+
+  kubectl apply -f <file.yaml>              → create/update resource
+  kubectl delete -f <file.yaml>             → delete resource
+  kubectl delete pod -n <namespace> <pod>   → delete a pod (auto-restarts)
+
+  kubectl rollout restart deployment/<name> -n <namespace>
+                                            → restart all pods in deployment
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT'S NEXT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [ ] CI/CD Pipeline     — GitHub Actions → auto deploy to K8s
+  [ ] Cloud Deploy       — AWS EKS / GCP GKE
+  [ ] HTTPS / TLS        — cert-manager + Let's Encrypt
+  [ ] Multi-environment  — dev / staging / production namespaces
+  [ ] Scaling            — multiple replicas + load balancing
+
+================================================================

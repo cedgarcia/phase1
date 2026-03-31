@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
         - name: task-api
-          image: task-manager-api:latest
-          imagePullPolicy: Never
+          image: cedgarcia/task-manager-api:latest
+          imagePullPolicy: Always
           resources:
             requests:
               memory: "128Mi"
